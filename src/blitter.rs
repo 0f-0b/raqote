@@ -125,7 +125,7 @@ impl RasterBlitter for MaskBlitter {
 }
 
 pub trait Shader {
-    fn shade_span(&self, x: i32, y: i32, dest: &mut [u32], count: usize);
+    fn shade_span(&self, x: i32, y: i32, dest: &mut [u32]);
 }
 
 pub struct SolidShader {
@@ -133,10 +133,8 @@ pub struct SolidShader {
 }
 
 impl Shader for SolidShader {
-    fn shade_span(&self, _x: i32, _y: i32, dest: &mut [u32], count: usize) {
-        for i in 0..count {
-            dest[i] = self.color;
-        }
+    fn shade_span(&self, _x: i32, _y: i32, dest: &mut [u32]) {
+        dest.fill(self.color);
     }
 }
 
@@ -154,24 +152,34 @@ fn transform_to_fixed(transform: &Transform) -> MatrixFixedPoint {
 pub struct TransformedImageShader<'a, 'b, Fetch: PixelFetch> {
     image: &'a Image<'b>,
     xfm: MatrixFixedPoint,
+    extend_x: bool,
+    extend_y: bool,
     fetch: PhantomData<Fetch>,
 }
 
 impl<'a, 'b, Fetch: PixelFetch> TransformedImageShader<'a, 'b, Fetch> {
-    pub fn new(image: &'a Image<'b>, transform: &Transform) -> TransformedImageShader<'a, 'b, Fetch> {
+    pub fn new(image: &'a Image<'b>, transform: &Transform, extend_x: bool, extend_y: bool) -> TransformedImageShader<'a, 'b, Fetch> {
         TransformedImageShader {
             image,
             xfm: transform_to_fixed(&transform.pre_translate(vec2(0.5, 0.5)).then_translate(vec2(-0.5, -0.5))),
+            extend_x,
+            extend_y,
             fetch: PhantomData,
         }
     }
 }
 
 impl<'a, 'b, Fetch: PixelFetch> Shader for TransformedImageShader<'a, 'b, Fetch> {
-    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32], count: usize) {
-        for i in 0..count {
+    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32]) {
+        for pixel in dest {
             let p = self.xfm.transform(x as u16, y as u16);
-            dest[i] = fetch_bilinear::<Fetch>(self.image, p.x, p.y);
+            if (self.extend_x || (0..self.image.width).contains(&fixed_to_int(p.x + FIXED_HALF)))
+                && (self.extend_y || (0..self.image.height).contains(&fixed_to_int(p.y + FIXED_HALF)))
+            {
+                *pixel = fetch_bilinear::<Fetch>(self.image, p.x, p.y);
+            } else {
+                *pixel = 0;
+            }
             x += 1;
         }
     }
@@ -180,15 +188,19 @@ impl<'a, 'b, Fetch: PixelFetch> Shader for TransformedImageShader<'a, 'b, Fetch>
 pub struct TransformedImageAlphaShader<'a, 'b, Fetch: PixelFetch> {
     image: &'a Image<'b>,
     xfm: MatrixFixedPoint,
+    extend_x: bool,
+    extend_y: bool,
     alpha: u32,
     fetch: PhantomData<Fetch>,
 }
 
 impl<'a, 'b, Fetch: PixelFetch> TransformedImageAlphaShader<'a, 'b, Fetch> {
-    pub fn new(image: &'a Image<'b>, transform: &Transform, alpha: u32) -> TransformedImageAlphaShader<'a, 'b, Fetch> {
+    pub fn new(image: &'a Image<'b>, transform: &Transform, extend_x: bool, extend_y: bool, alpha: u32) -> TransformedImageAlphaShader<'a, 'b, Fetch> {
         TransformedImageAlphaShader {
             image,
             xfm: transform_to_fixed(&transform.pre_translate(vec2(0.5, 0.5)).then_translate(vec2(-0.5, -0.5))),
+            extend_x,
+            extend_y,
             alpha: alpha_to_alpha256(alpha),
             fetch: PhantomData,
         }
@@ -196,10 +208,16 @@ impl<'a, 'b, Fetch: PixelFetch> TransformedImageAlphaShader<'a, 'b, Fetch> {
 }
 
 impl<'a, 'b, Fetch: PixelFetch> Shader for TransformedImageAlphaShader<'a, 'b, Fetch> {
-    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32], count: usize) {
-        for i in 0..count {
+    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32]) {
+        for pixel in dest {
             let p = self.xfm.transform(x as u16, y as u16);
-            dest[i] = fetch_bilinear_alpha::<Fetch>(self.image, p.x, p.y, self.alpha);
+            if (self.extend_x || (0..self.image.width).contains(&fixed_to_int(p.x + FIXED_HALF)))
+                && (self.extend_y || (0..self.image.height).contains(&fixed_to_int(p.y + FIXED_HALF)))
+            {
+                *pixel = fetch_bilinear_alpha::<Fetch>(self.image, p.x, p.y, self.alpha);
+            } else {
+                *pixel = 0;
+            }
             x += 1;
         }
     }
@@ -208,24 +226,34 @@ impl<'a, 'b, Fetch: PixelFetch> Shader for TransformedImageAlphaShader<'a, 'b, F
 pub struct TransformedNearestImageShader<'a, 'b, Fetch: PixelFetch> {
     image: &'a Image<'b>,
     xfm: MatrixFixedPoint,
+    extend_x: bool,
+    extend_y: bool,
     fetch: PhantomData<Fetch>,
 }
 
 impl<'a, 'b, Fetch: PixelFetch> TransformedNearestImageShader<'a, 'b, Fetch> {
-    pub fn new(image: &'a Image<'b>, transform: &Transform) -> TransformedNearestImageShader<'a, 'b, Fetch> {
+    pub fn new(image: &'a Image<'b>, transform: &Transform, extend_x: bool, extend_y: bool) -> TransformedNearestImageShader<'a, 'b, Fetch> {
         TransformedNearestImageShader {
             image,
             xfm: transform_to_fixed(&transform.pre_translate(vec2(0.5, 0.5)).then_translate(vec2(-0.5, -0.5))),
+            extend_x,
+            extend_y,
             fetch: PhantomData,
         }
     }
 }
 
 impl<'a, 'b, Fetch: PixelFetch> Shader for TransformedNearestImageShader<'a, 'b, Fetch> {
-    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32], count: usize) {
-        for i in 0..count {
+    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32]) {
+        for pixel in dest {
             let p = self.xfm.transform(x as u16, y as u16);
-            dest[i] = fetch_nearest::<Fetch>(self.image, p.x, p.y);
+            if (self.extend_x || (0..self.image.width).contains(&fixed_to_int(p.x + FIXED_HALF)))
+                && (self.extend_y || (0..self.image.height).contains(&fixed_to_int(p.y + FIXED_HALF)))
+            {
+                *pixel = fetch_nearest::<Fetch>(self.image, p.x, p.y);
+            } else {
+                *pixel = 0;
+            }
             x += 1;
         }
     }
@@ -234,15 +262,19 @@ impl<'a, 'b, Fetch: PixelFetch> Shader for TransformedNearestImageShader<'a, 'b,
 pub struct TransformedNearestImageAlphaShader<'a, 'b, Fetch: PixelFetch> {
     image: &'a Image<'b>,
     xfm: MatrixFixedPoint,
+    extend_x: bool,
+    extend_y: bool,
     alpha: u32,
     fetch: PhantomData<Fetch>,
 }
 
 impl<'a, 'b, Fetch: PixelFetch> TransformedNearestImageAlphaShader<'a, 'b, Fetch> {
-    pub fn new(image: &'a Image<'b>, transform: &Transform, alpha: u32) -> TransformedNearestImageAlphaShader<'a, 'b, Fetch> {
+    pub fn new(image: &'a Image<'b>, transform: &Transform, extend_x: bool, extend_y: bool, alpha: u32) -> TransformedNearestImageAlphaShader<'a, 'b, Fetch> {
         TransformedNearestImageAlphaShader {
             image,
             xfm: transform_to_fixed(&transform.pre_translate(vec2(0.5, 0.5)).then_translate(vec2(-0.5, -0.5))),
+            extend_x,
+            extend_y,
             alpha: alpha_to_alpha256(alpha),
             fetch: PhantomData,
         }
@@ -250,10 +282,16 @@ impl<'a, 'b, Fetch: PixelFetch> TransformedNearestImageAlphaShader<'a, 'b, Fetch
 }
 
 impl<'a, 'b, Fetch: PixelFetch> Shader for TransformedNearestImageAlphaShader<'a, 'b, Fetch> {
-    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32], count: usize) {
-        for i in 0..count {
+    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32]) {
+        for pixel in dest {
             let p = self.xfm.transform(x as u16, y as u16);
-            dest[i] = fetch_nearest_alpha::<Fetch>(self.image, p.x, p.y, self.alpha);
+            if (self.extend_x || (0..self.image.width).contains(&fixed_to_int(p.x + FIXED_HALF)))
+                && (self.extend_y || (0..self.image.height).contains(&fixed_to_int(p.y + FIXED_HALF)))
+            {
+                *pixel = fetch_nearest_alpha::<Fetch>(self.image, p.x, p.y, self.alpha);
+            } else {
+                *pixel = 0;
+            }
             x += 1;
         }
     }
@@ -263,55 +301,64 @@ pub struct ImagePadAlphaShader<'a, 'b> {
     image: &'a Image<'b>,
     offset_x: i32,
     offset_y: i32,
+    extend_x: bool,
+    extend_y: bool,
     alpha: u32,
 }
 
 impl<'a, 'b> ImagePadAlphaShader<'a, 'b> {
-    pub fn new(image: &'a Image<'b>, x: i32, y: i32, alpha: u32) -> ImagePadAlphaShader<'a, 'b> {
+    pub fn new(image: &'a Image<'b>, x: i32, y: i32, extend_x: bool, extend_y: bool, alpha: u32) -> ImagePadAlphaShader<'a, 'b> {
         ImagePadAlphaShader {
             image,
             offset_x: x,
             offset_y: y,
+            extend_x,
+            extend_y,
             alpha: alpha_to_alpha256(alpha),
         }
     }
 }
 
 impl<'a, 'b> Shader for ImagePadAlphaShader<'a, 'b> {
-    fn shade_span(&self, mut x: i32, mut y: i32, dest: &mut [u32], mut count: usize) {
+    fn shade_span(&self, mut x: i32, mut y: i32, mut dest: &mut [u32]) {
         x += self.offset_x;
         y += self.offset_y;
-        let mut dest_x = 0;
 
-        if y < 0 {
-            y = 0;
-        } else if y >= self.image.height {
-            y = self.image.height - 1;
+        if self.extend_y {
+            y = y.clamp(0, self.image.height - 1);
+        } else if y < 0 || y >= self.image.height {
+            dest.fill(0);
+            return;
         }
 
-        while x < 0 && count > 0 {
-            dest[dest_x] = alpha_mul(self.image.data[(self.image.width * y) as usize], self.alpha);
-            x += 1;
-            dest_x += 1;
-            count -= 1;
+        if !dest.is_empty() && x < 0 {
+            let len = dest.len().min(x.wrapping_neg() as u32 as usize);
+            let (d, rest) = dest.split_at_mut(len);
+            dest = rest;
+            if self.extend_x {
+                d.fill(alpha_mul(self.image.data[(self.image.width * y) as usize], self.alpha));
+            } else {
+                d.fill(0);
+            }
+            x = 0;
         }
-        if count > 0 && x < self.image.width {
-            let len = count.min((self.image.width - x) as usize);
-            let d = &mut dest[dest_x..dest_x + len];
+        if !dest.is_empty() && x < self.image.width {
+            let len = dest.len().min((self.image.width - x) as usize);
+            let (d, rest) = dest.split_at_mut(len);
+            dest = rest;
             let src_start = (self.image.width * y + x) as usize;
-            let s = &self.image.data[src_start..src_start + len];
+            let s = &self.image.data[src_start..];
 
             for (d, s) in d.iter_mut().zip(s) {
                 *d = alpha_mul(*s, self.alpha);
             }
-
-            dest_x += len;
-            count -= len;
         }
-        while count > 0 {
-            dest[dest_x] = alpha_mul(self.image.data[(self.image.width * y + self.image.width - 1) as usize], self.alpha);
-            dest_x += 1;
-            count -= 1;
+        if !dest.is_empty() {
+            if self.extend_x {
+                dest.fill(alpha_mul(self.image.data[(self.image.width * y + self.image.width - 1) as usize], self.alpha));
+            } else {
+                dest.fill(0);
+            }
         }
     }
 }
@@ -320,42 +367,64 @@ pub struct ImageRepeatAlphaShader<'a, 'b> {
     image: &'a Image<'b>,
     offset_x: i32,
     offset_y: i32,
+    extend_x: bool,
+    extend_y: bool,
     alpha: u32,
 }
 
 impl<'a, 'b> ImageRepeatAlphaShader<'a, 'b> {
-    pub fn new(image: &'a Image<'b>, x: i32, y: i32, alpha: u32) -> ImageRepeatAlphaShader<'a, 'b> {
+    pub fn new(image: &'a Image<'b>, x: i32, y: i32, extend_x: bool, extend_y: bool, alpha: u32) -> ImageRepeatAlphaShader<'a, 'b> {
         ImageRepeatAlphaShader {
             image,
             offset_x: x,
             offset_y: y,
+            extend_x,
+            extend_y,
             alpha: alpha_to_alpha256(alpha),
         }
     }
 }
 
 impl<'a, 'b> Shader for ImageRepeatAlphaShader<'a, 'b> {
-    fn shade_span(&self, mut x: i32, mut y: i32, dest: &mut [u32], mut count: usize) {
+    fn shade_span(&self, mut x: i32, mut y: i32, mut dest: &mut [u32]) {
         x += self.offset_x;
         y += self.offset_y;
-        let mut dest_x = 0;
 
-        let y = y.rem_euclid(self.image.height);
-        let mut x = x.rem_euclid(self.image.width);
+        if self.extend_y {
+            y = y.rem_euclid(self.image.height);
+        } else if y < 0 || y >= self.image.height {
+            dest.fill(0);
+            return;
+        }
+        if self.extend_x {
+            x = x.rem_euclid(self.image.width);
+        } else if x < 0 {
+            let len = dest.len().min(x.wrapping_neg() as u32 as usize);
+            let (d, rest) = dest.split_at_mut(len);
+            dest = rest;
+            d.fill(0);
+            x = 0;
+        } else if x >= self.image.width {
+            dest.fill(0);
+            return;
+        }
 
-        while count > 0 {
-            let len = count.min((self.image.width - x) as usize);
-            let d = &mut dest[dest_x..dest_x + len];
+        while !dest.is_empty() {
+            let len = dest.len().min((self.image.width - x) as usize);
+            let (d, rest) = dest.split_at_mut(len);
+            dest = rest;
             let src_start = (self.image.width * y + x) as usize;
-            let s = &self.image.data[src_start..src_start + len];
+            let s = &self.image.data[src_start..];
 
             for (d, s) in d.iter_mut().zip(s) {
                 *d = alpha_mul(*s, self.alpha);
             }
 
-            dest_x += len;
-            count -= len;
             x = 0;
+            if !self.extend_x {
+                dest.fill(0);
+                return;
+            }
         }
     }
 }
@@ -378,9 +447,9 @@ impl RadialGradientShader {
 }
 
 impl Shader for RadialGradientShader {
-    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32], count: usize) {
-        for i in 0..count {
-            dest[i] = self.gradient.radial_gradient_eval(x as u16, y as u16, self.spread);
+    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32]) {
+        for pixel in dest {
+            *pixel = self.gradient.radial_gradient_eval(x as u16, y as u16, self.spread);
             x += 1;
         }
     }
@@ -414,9 +483,9 @@ impl TwoCircleRadialGradientShader {
 }
 
 impl Shader for TwoCircleRadialGradientShader {
-    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32], count: usize) {
-        for i in 0..count {
-            dest[i] = self.gradient.eval(x as u16, y as u16, self.spread);
+    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32]) {
+        for pixel in dest {
+            *pixel = self.gradient.eval(x as u16, y as u16, self.spread);
             x += 1;
         }
     }
@@ -446,9 +515,9 @@ impl SweepGradientShader {
 }
 
 impl Shader for SweepGradientShader {
-    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32], count: usize) {
-        for i in 0..count {
-            dest[i] = self.gradient.eval(x as u16, y as u16, self.spread);
+    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32]) {
+        for pixel in dest {
+            *pixel = self.gradient.eval(x as u16, y as u16, self.spread);
             x += 1;
         }
     }
@@ -472,9 +541,9 @@ impl LinearGradientShader {
 }
 
 impl Shader for LinearGradientShader {
-    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32], count: usize) {
-        for i in 0..count {
-            dest[i] = self.gradient.linear_gradient_eval(x as u16, y as u16, self.spread);
+    fn shade_span(&self, mut x: i32, y: i32, dest: &mut [u32]) {
+        for pixel in dest {
+            *pixel = self.gradient.linear_gradient_eval(x as u16, y as u16, self.spread);
             x += 1;
         }
     }
@@ -493,7 +562,7 @@ impl<'a> Blitter for ShaderMaskBlitter<'a> {
     fn blit_span(&mut self, y: i32, x1: i32, x2: i32, mask: &[u8]) {
         let dest_row = (y - self.y) * self.dest_stride;
         let count = (x2 - x1) as usize;
-        self.shader.shade_span(x1, y, &mut self.tmp[..], count);
+        self.shader.shade_span(x1, y, &mut self.tmp[..count]);
         for i in 0..count {
             let mask = mask[i] as u32;
             if mask != 0 {
@@ -523,7 +592,7 @@ impl<'a> Blitter for ShaderClipMaskBlitter<'a> {
         let dest_row = (y - self.y) * self.dest_stride;
         let clip_row = y * self.clip_stride;
         let count = (x2 - x1) as usize;
-        self.shader.shade_span(x1, y, &mut self.tmp[..], count);
+        self.shader.shade_span(x1, y, &mut self.tmp[..count]);
         for i in 0..count {
             let mask = mask[i] as u32;
             let clip = self.clip[(clip_row + x1) as usize + i] as u32;
@@ -556,7 +625,7 @@ impl<'a> Blitter for ShaderClipBlendMaskBlitter<'a> {
         let dest_row = (y - self.y) * self.dest_stride;
         let clip_row = y * self.clip_stride;
         let count = (x2 - x1) as usize;
-        self.shader.shade_span(x1, y, &mut self.tmp[..], count);
+        self.shader.shade_span(x1, y, &mut self.tmp[..count]);
         (self.blend_fn)(&self.tmp[..],
                       mask,
                       &self.clip[(clip_row + x1) as usize..],
@@ -578,7 +647,7 @@ impl<'a> Blitter for ShaderBlendMaskBlitter<'a> {
     fn blit_span(&mut self, y: i32, x1: i32, x2: i32, mask: &[u8]) {
         let dest_row = (y - self.y) * self.dest_stride;
         let count = (x2 - x1) as usize;
-        self.shader.shade_span(x1, y, &mut self.tmp[..], count);
+        self.shader.shade_span(x1, y, &mut self.tmp[..count]);
         (self.blend_fn)(&self.tmp[..],
                         mask,
                         &mut self.dest[(dest_row + x1 - self.x) as usize..])
@@ -599,7 +668,7 @@ impl<'a> Blitter for ShaderBlendBlitter<'a> {
     fn blit_span(&mut self, y: i32, x1: i32, x2: i32, _: &[u8]) {
         let dest_row = (y - self.y) * self.dest_stride;
         let count = (x2 - x1) as usize;
-        self.shader.shade_span(x1, y, &mut self.tmp[..], count);
+        self.shader.shade_span(x1, y, &mut self.tmp[..count]);
         (self.blend_fn)(&self.tmp[..],
                         &mut self.dest[(dest_row + x1 - self.x) as usize..])
     }
@@ -647,72 +716,72 @@ pub fn choose_shader<'a, 'b, 'c>(ti: &Transform, src: &'b Source<'c>, alpha: f32
     // XXX: clamp alpha
     let alpha = (alpha * 255. + 0.5) as u32;
 
-    *shader_storage = match src {
+    *shader_storage = match *src {
         Source::Solid(c) => {
             let color = alpha_mul(c.to_u32(), alpha_to_alpha256(alpha));
             let s = SolidShader { color };
             ShaderStorage::Solid(s)
         }
-        Source::Image(ref image, ExtendMode::Pad, filter, transform) => {
+        Source::Image(ref image, ExtendMode::Pad, filter, transform, extend_x, extend_y) => {
             if let Some(offset) = is_integer_transform(&ti.then(&transform)) {
-                ShaderStorage::ImagePadAlpha(ImagePadAlphaShader::new(image, offset.x, offset.y, alpha))
+                ShaderStorage::ImagePadAlpha(ImagePadAlphaShader::new(image, offset.x, offset.y, extend_x, extend_y, alpha))
             } else {
                 if alpha != 255 {
-                    if *filter == FilterMode::Bilinear {
-                        let s = TransformedImageAlphaShader::<PadFetch>::new(image, &ti.then(&transform), alpha);
+                    if filter == FilterMode::Bilinear {
+                        let s = TransformedImageAlphaShader::<PadFetch>::new(image, &ti.then(&transform), extend_x, extend_y, alpha);
                         ShaderStorage::TransformedPadImageAlpha(s)
                     } else {
-                        let s = TransformedNearestImageAlphaShader::<PadFetch>::new(image, &ti.then(&transform), alpha);
+                        let s = TransformedNearestImageAlphaShader::<PadFetch>::new(image, &ti.then(&transform), extend_x, extend_y, alpha);
                         ShaderStorage::TransformedNearestPadImageAlpha(s)
                     }
                 } else {
-                    if *filter == FilterMode::Bilinear {
-                        let s = TransformedImageShader::<PadFetch>::new(image, &ti.then(&transform));
+                    if filter == FilterMode::Bilinear {
+                        let s = TransformedImageShader::<PadFetch>::new(image, &ti.then(&transform), extend_x, extend_y);
                         ShaderStorage::TransformedPadImage(s)
                     } else {
-                        let s = TransformedNearestImageShader::<PadFetch>::new(image, &ti.then(&transform));
+                        let s = TransformedNearestImageShader::<PadFetch>::new(image, &ti.then(&transform), extend_x, extend_y);
                         ShaderStorage::TransformedNearestPadImage(s)
                     }
                 }
             }
         }
-        Source::Image(ref image, ExtendMode::Repeat, filter, transform) => {
+        Source::Image(ref image, ExtendMode::Repeat, filter, transform, extend_x, extend_y) => {
             if let Some(offset) = is_integer_transform(&ti.then(&transform)) {
-                ShaderStorage::ImageRepeatAlpha(ImageRepeatAlphaShader::new(image, offset.x, offset.y, alpha))
+                ShaderStorage::ImageRepeatAlpha(ImageRepeatAlphaShader::new(image, offset.x, offset.y, extend_x, extend_y, alpha))
             } else {
-                if *filter == FilterMode::Bilinear {
+                if filter == FilterMode::Bilinear {
                     if alpha != 255 {
-                        let s = TransformedImageAlphaShader::<RepeatFetch>::new(image, &ti.then(&transform), alpha);
+                        let s = TransformedImageAlphaShader::<RepeatFetch>::new(image, &ti.then(&transform), extend_x, extend_y, alpha);
                         ShaderStorage::TransformedRepeatImageAlpha(s)
                     } else {
-                        let s = TransformedImageShader::<RepeatFetch>::new(image, &ti.then(&transform));
+                        let s = TransformedImageShader::<RepeatFetch>::new(image, &ti.then(&transform), extend_x, extend_y);
                         ShaderStorage::TransformedRepeatImage(s)
                     }
                 } else {
                     if alpha != 255 {
-                        let s = TransformedNearestImageAlphaShader::<RepeatFetch>::new(image, &ti.then(&transform), alpha);
+                        let s = TransformedNearestImageAlphaShader::<RepeatFetch>::new(image, &ti.then(&transform), extend_x, extend_y, alpha);
                         ShaderStorage::TransformedNearestRepeatImageAlpha(s)
                     } else {
-                        let s = TransformedNearestImageShader::<RepeatFetch>::new(image, &ti.then(&transform));
+                        let s = TransformedNearestImageShader::<RepeatFetch>::new(image, &ti.then(&transform), extend_x, extend_y);
                         ShaderStorage::TransformedNearestRepeatImage(s)
                     }
                 }
             }
         }
         Source::RadialGradient(ref gradient, spread, transform) => {
-            let s = RadialGradientShader::new(gradient, &ti.then(&transform), *spread, alpha);
+            let s = RadialGradientShader::new(gradient, &ti.then(&transform), spread, alpha);
             ShaderStorage::RadialGradient(s)
         }
         Source::TwoCircleRadialGradient(ref gradient, spread, c1, r1, c2, r2, transform) => {
-            let s = TwoCircleRadialGradientShader::new(gradient, &ti.then(&transform), *c1, *r1, *c2, *r2, *spread, alpha);
+            let s = TwoCircleRadialGradientShader::new(gradient, &ti.then(&transform), c1, r1, c2, r2, spread, alpha);
             ShaderStorage::TwoCircleRadialGradient(s)
         }
         Source::SweepGradient(ref gradient, spread, start_angle, end_angle, transform) => {
-            let s = SweepGradientShader::new(gradient, &ti.then(&transform), *start_angle, *end_angle, *spread, alpha);
+            let s = SweepGradientShader::new(gradient, &ti.then(&transform), start_angle, end_angle, spread, alpha);
             ShaderStorage::SweepGradient(s)
         }
         Source::LinearGradient(ref gradient, spread, transform) => {
-            let s = LinearGradientShader::new(gradient, &ti.then(&transform), *spread, alpha);
+            let s = LinearGradientShader::new(gradient, &ti.then(&transform), spread, alpha);
             ShaderStorage::LinearGradient(s)
         }
     };

@@ -226,7 +226,7 @@ pub enum FilterMode {
 #[derive(Clone)]
 pub enum Source<'a> {
     Solid(SolidSource),
-    Image(Image<'a>, ExtendMode, FilterMode, Transform),
+    Image(Image<'a>, ExtendMode, FilterMode, Transform, bool, bool),
     RadialGradient(Gradient, Spread, Transform),
     TwoCircleRadialGradient(Gradient, Spread, Point, f32, Point, f32, Transform),
     LinearGradient(Gradient, Spread, Transform),
@@ -641,7 +641,7 @@ impl<Backing : AsRef<[u32]> + AsMut<[u32]>> DrawTarget<Backing> {
                                   ExtendMode::Pad,
                                   FilterMode::Nearest,
                                   Transform::translation(-layer.rect.min.x as f32,
-                                                                -layer.rect.min.y as f32));
+                                                                -layer.rect.min.y as f32), true, true);
         self.composite(&image, Some(&mask), intrect(0, 0, self.width, self.height), layer.rect, layer.blend, 1.);
         self.transform = ctm;
     }
@@ -652,7 +652,7 @@ impl<Backing : AsRef<[u32]> + AsMut<[u32]>> DrawTarget<Backing> {
         let source = Source::Image(*image,
                                    ExtendMode::Pad,
                                    FilterMode::Bilinear,
-                                   Transform::translation(-x, -y).then_scale(image.width as f32 / width, image.height as f32 / height));
+                                   Transform::translation(-x, -y).then_scale(image.width as f32 / width, image.height as f32 / height), true, true);
 
         self.fill_rect(x, y, width, height, &source, options);
     }
