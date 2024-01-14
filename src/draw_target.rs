@@ -978,7 +978,7 @@ impl<Backing : AsRef<[u32]> + AsMut<[u32]>> DrawTarget<Backing> {
         let shader = choose_shader(&ti, src, alpha, &mut shader_storage);
 
         let mut blitter_storage = ShaderBlitterStorage::None;
-        let blitter = DrawTarget::choose_blitter(mask, &self.clip_stack, &mut blitter_storage, shader, blend, dest, dest_bounds, self.width);
+        let blitter = DrawTarget::choose_blitter(mask, &self.clip_stack, &mut blitter_storage, shader, blend, dest, dest_bounds, rect.width());
 
         match mask {
             Some(mask) => {
