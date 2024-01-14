@@ -1001,23 +1001,19 @@ impl<Backing : AsRef<[u32]> + AsMut<[u32]>> DrawTarget<Backing> {
     /// Draws `src_rect` of `src` at `dst`. The current transform and clip are ignored
     pub fn composite_surface<F: Fn(&[u32], &mut [u32]), SrcBacking: AsRef<[u32]>>(&mut self, src: &DrawTarget<SrcBacking>, src_rect: IntRect, dst: IntPoint, f: F) {
         let dst_rect = intrect(0, 0, self.width, self.height);
+        let offset = dst - src_rect.min;
 
         // intersect the src_rect with the source size so that we don't go out of bounds
         let src_rect = src_rect.intersection_unchecked(&intrect(0, 0, src.width, src.height));
 
-        let src_rect = dst_rect
-            .intersection_unchecked(&src_rect.translate(dst.to_vector())).translate(-dst.to_vector());
-
-        // clamp requires Float so open code it
-        let dst = IntPoint::new(dst.x.max(dst_rect.min.x).min(dst_rect.max.x),
-                                dst.y.max(dst_rect.min.y).min(dst_rect.max.y));
+        let src_rect = src_rect.intersection_unchecked(&dst_rect.translate(-offset));
 
         if src_rect.is_empty() {
             return;
         }
 
         for y in src_rect.min.y..src_rect.max.y {
-            let dst_row_start = (dst.x + (dst.y + y - src_rect.min.y) * self.width) as usize;
+            let dst_row_start = (src_rect.min.x + offset.x + (y + offset.y) * self.width()) as usize;
             let dst_row_end = dst_row_start + src_rect.size().width as usize;
             let src_row_start = (src_rect.min.x + y * src.width) as usize;
             let src_row_end = src_row_start + src_rect.size().width as usize;
