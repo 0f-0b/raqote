@@ -399,11 +399,11 @@ impl DrawTarget {
     }
 }
 
-impl<Backing : AsRef<[u32]> + AsMut<[u32]>> DrawTarget<Backing> {
+impl<Backing> DrawTarget<Backing> {
     /// Use an existing backing storage for the bitmap
     ///
     /// The backing store must be the correct size (width*height elements).
-    pub fn from_backing(width: i32, height: i32, buf : Backing) -> Self {
+    pub fn from_backing(width: i32, height: i32, buf: Backing) -> Self where Backing: AsRef<[u32]> {
         assert_eq!((width*height) as usize, buf.as_ref().len());
         DrawTarget {
             width,
@@ -425,7 +425,9 @@ impl<Backing : AsRef<[u32]> + AsMut<[u32]>> DrawTarget<Backing> {
     pub fn height(&self) -> i32 {
         self.height
     }
+}
 
+impl<Backing: AsRef<[u32]> + AsMut<[u32]>> DrawTarget<Backing> {
     /// sets a transform that will be applied to all drawing operations
     pub fn set_transform(&mut self, transform: &Transform) {
         self.transform = *transform;
@@ -1052,21 +1054,23 @@ impl<Backing : AsRef<[u32]> + AsMut<[u32]>> DrawTarget<Backing> {
             over_in_row(src, dst, alpha as u32);
         });
     }
+}
 
+impl<Backing> DrawTarget<Backing> {
     /// Returns a reference to the underlying pixel data
-    pub fn get_data(&self) -> &[u32] {
+    pub fn get_data(&self) -> &[u32] where Backing: AsRef<[u32]> {
         self.buf.as_ref()
     }
 
     /// Returns a mut reference to the underlying pixel data as ARGB with a representation
     /// like: (A << 24) | (R << 16) | (G << 8) | B
-    pub fn get_data_mut(&mut self) -> &mut [u32] {
+    pub fn get_data_mut(&mut self) -> &mut [u32] where Backing: AsMut<[u32]> {
         self.buf.as_mut()
     }
 
     /// Returns a reference to the underlying pixel data as individual bytes with the order BGRA
     /// on little endian.
-    pub fn get_data_u8(&self) -> &[u8] {
+    pub fn get_data_u8(&self) -> &[u8] where Backing: AsRef<[u32]> {
         let buf = self.buf.as_ref();
         let p = buf.as_ptr();
         let len = buf.len();
@@ -1077,7 +1081,7 @@ impl<Backing : AsRef<[u32]> + AsMut<[u32]>> DrawTarget<Backing> {
 
     /// Returns a mut reference to the underlying pixel data as individual bytes with the order BGRA
     /// on little endian.
-    pub fn get_data_u8_mut(&mut self) -> &mut [u8] {
+    pub fn get_data_u8_mut(&mut self) -> &mut [u8] where Backing: AsMut<[u32]> {
         let buf = self.buf.as_mut();
         let p = buf.as_mut_ptr();
         let len = buf.len();
@@ -1093,7 +1097,7 @@ impl<Backing : AsRef<[u32]> + AsMut<[u32]>> DrawTarget<Backing> {
 
     /// Saves the current pixel to a png file at `path`
     #[cfg(feature = "png")]
-    pub fn write_png<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), png::EncodingError> {
+    pub fn write_png<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), png::EncodingError> where Backing: AsRef<[u32]> {
         let file = File::create(path)?;
 
         let w = &mut BufWriter::new(file);
