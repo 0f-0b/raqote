@@ -669,6 +669,11 @@ impl<Backing : AsRef<[u32]> + AsMut<[u32]>> DrawTarget<Backing> {
 
     /// Strokes `path` with `style` and fills the result with `src`
     pub fn stroke(&mut self, path: &Path, src: &Source, style: &StrokeStyle, options: &DrawOptions) {
+        let stroked = self.trace_path(&path, style);
+        self.fill(&stroked, src, options);
+    }
+
+    pub fn trace_path(&self, path: &Path, style: &StrokeStyle) -> Path {
         let tolerance = 0.1;
 
         // Since we're flattening in userspace, we need to compensate for the transform otherwise
@@ -683,8 +688,7 @@ impl<Backing : AsRef<[u32]> + AsMut<[u32]>> DrawTarget<Backing> {
         if !style.dash_array.is_empty() {
             path = dash_path(&path, &style.dash_array, style.dash_offset);
         }
-        let stroked = stroke_to_path(&path, style);
-        self.fill(&stroked, src, options);
+        stroke_to_path(&path, style)
     }
 
     /// Fills the rect `x`, `y,`, `width`, `height` with `src`. If the result is an
