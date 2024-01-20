@@ -77,6 +77,10 @@ impl From<Color> for SolidSource {
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum BlendMode {
+    SrcOpaque,
+    ClearOpaque,
+    DstInOpaque,
+    DstOutOpaque,
     Dst,
     Src,
     Clear,
@@ -170,6 +174,10 @@ impl Blender for BlendRowMaskClip {
 fn build_blend_proc<T: Blender>(mode: BlendMode) -> T::Output {
     use sw_composite::blend::*;
     match mode {
+        BlendMode::SrcOpaque => T::build::<Opaque<Src>>(),
+        BlendMode::ClearOpaque => T::build::<Opaque<Clear>>(),
+        BlendMode::DstInOpaque => T::build::<Opaque<DstIn>>(),
+        BlendMode::DstOutOpaque => T::build::<Opaque<DstOut>>(),
         BlendMode::Dst => T::build::<Dst>(),
         BlendMode::Src => T::build::<Src>(),
         BlendMode::Clear => T::build::<Clear>(),
